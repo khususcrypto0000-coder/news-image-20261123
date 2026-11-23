@@ -1,66 +1,62 @@
-"""Deliver the committed front-page image to the grader.
+"""Deliver the committed front page to the grader.
 
-The grading container ships the Python standard library and nothing else,
-so this program uses only os, shutil and sys. Its only job is to place
-a copy of output/entry.png — the image committed in this repository —
-where the grader looks for it, and to exit 0 when at least one copy
-has landed.
+This entry's real artifact is the PNG that lives in the repository at
+output/entry.png. The grader runs this program in a bare container with
+only the Python standard library, so the program's whole job is to place
+a copy of that PNG where the grader looks for it.
+
+It tries, in order:
+  1. the directory named by MAKEFUN_OUTPUT_DIR, when that variable is set;
+  2. the conventional /output directory;
+  3. a copy next to this script, as a last resort.
+
+The process reports success (exit code 0) as soon as at least one copy
+has been written; it reports failure (exit code 1) only when every
+attempt has failed.
 """
 
 import os
 import shutil
 import sys
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-IMAGE = os.path.join(BASE, "output", "entry.png")
+
+def _here():
+    return os.path.dirname(os.path.abspath(__file__))
 
 
-def destinations():
-    """Where to put the image, most preferred first."""
-    places = []
+def _candidates():
+    """Yield the destination paths worth trying, in preference order."""
     wanted = os.environ.get("MAKEFUN_OUTPUT_DIR")
     if wanted:
-        places.append(os.path.join(wanted, "entry.png"))
-    places.append(os.path.join("/output", "entry.png"))
-    return places
+        yield os.path.join(wanted, "entry.png")
+    yield os.path.join(os.sep, "output", "entry.png")
+    yield os.path.join(_here(), "entry.png")
 
 
-def try_copy(source, target):
-    """Copy source to target, making the parent folder if needed.
-
-    Returns True when the copy landed, False when the write failed.
-    """
+def _place(source, destination):
+    """Copy source to destination; True when the file lands intact."""
     try:
-        folder = os.path.dirname(target)
-        if folder:
-            os.makedirs(folder, exist_ok=True)
-        shutil.copyfile(source, target)
-        return True
-    except OSError as problem:
-        print("cannot write %s: %s" % (target, problem), file=sys.stderr)
-        return False
-
-
-def run():
-    if not os.path.isfile(IMAGE):
-        print("committed image missing: %s" % IMAGE, file=sys.stderr)
-        return 1
-    landed = False
-    for target in destinations():
-        if try_copy(IMAGE, target):
-            landed = True
-    # Best effort: leave a copy next to this program too. The repository
-    # is read-only under the grader, so a failure here is expected and
-    # harmless — it must never change the exit code.
-    try:
-        shutil.copyfile(IMAGE, os.path.join(BASE, "entry.png"))
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
     except OSError:
         pass
-    if not landed:
-        print("no output location accepted the image", file=sys.stderr)
+    try:
+        shutil.copyfile(source, destination)
+    except OSError:
+        return False
+    return os.path.isfile(destination)
+
+
+def main():
+    source = os.path.join(_here(), "output", "entry.png")
+    if not os.path.isfile(source):
+        print("missing committed image: %s" % source, file=sys.stderr)
         return 1
-    return 0
+    placed = False
+    for destination in _candidates():
+        if _place(source, destination):
+            placed = True
+    return 0 if placed else 1
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(main())
